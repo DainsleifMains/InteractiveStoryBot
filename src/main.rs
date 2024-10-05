@@ -5,14 +5,23 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use miette::{bail, ensure, IntoDiagnostic};
+use serenity::prelude::*;
 use tweep::Story;
 
 mod config;
+mod handler;
+mod play_story_command;
+mod types;
 
-fn main() -> miette::Result<()> {
+use handler::Handler;
+use types::StoryText;
+
+#[tokio::main]
+async fn main() -> miette::Result<()> {
 	let config = config::parse_config("config.kdl")?;
 
-	let story_str = Story::from_string(std::fs::read_to_string(&config.story_file).into_diagnostic()?);
+	let story_text = tokio::fs::read_to_string(&config.story_file).await.into_diagnostic()?;
+	let story_str = Story::from_string(story_text.clone());
 	let (story, warnings) = story_str.take();
 	ensure!(
 		warnings.is_empty(),
@@ -25,30 +34,19 @@ fn main() -> miette::Result<()> {
 		Err(error) => bail!(error),
 	};
 
-	let Some(initial_passage_title) = story.get_start_passage_name() else {
+	if story.get_start_passage_name().is_none() {
 		bail!("No start passage defined");
 	};
-	println!("Start: {}", initial_passage_title);
 
-	for (passage_title, passage_data) in story.passages.iter() {
-		println!("Passage: {}", passage_title);
-		println!();
-		println!("{}", passage_data.content.content);
-		println!();
-		println!("Links:");
-		let links = passage_data.content.get_links();
-		for link_data in links.iter() {
-			let mut link = link_data.context.get_contents();
-			link = link.strip_prefix("[[").unwrap_or(link);
-			link = link.strip_suffix("]]").unwrap_or(link);
-			if let Some((name, destination)) = link.split_once("->") {
-				println!("Name: {}; Target: {}", name, destination);
-			} else {
-				println!("Name & Target: {}", link);
-			}
-		}
-		println!();
-	}
+	let story_text = StoryText::new(story_text);
+
+	let intents = GatewayIntents::empty();
+	let client_builder = Client::builder(&config.discord_bot_token, intents)
+		.event_handler(Handler)
+		.type_map_insert::<StoryText>(story_text);
+	let mut client = client_builder.await.into_diagnostic()?;
+
+	client.start().await.into_diagnostic()?;
 
 	Ok(())
 }

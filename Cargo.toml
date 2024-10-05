@@ -7,3 +7,25 @@ edition = "2021"
 knuffel = "3.2.0"
 miette = { version = "5.10.0", features = ["fancy"] }
 tweep = "0.3.0"
+
+[dependencies.serenity]
+version = "0.12.2"
+default-features = false
+features = [
+	"builder",
+	"cache",
+	"client",
+	"gateway",
+	"model",
+	"rustls_backend",
+	"utils"
+]
+
+[dependencies.tokio]
+version = "1.40.0"
+features = [
+	"fs",
+	"macros",
+	"net",
+	"rt-multi-thread"
+]

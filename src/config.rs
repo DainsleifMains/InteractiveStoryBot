@@ -17,4 +17,6 @@ pub fn parse_config(config_path: &str) -> Result<ConfigDocument> {
 pub struct ConfigDocument {
 	#[knuffel(child, unwrap(argument))]
 	pub story_file: String,
+	#[knuffel(child, unwrap(argument))]
+	pub discord_bot_token: String,
 }
