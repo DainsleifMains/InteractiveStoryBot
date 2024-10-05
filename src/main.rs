@@ -4,9 +4,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use miette::{bail, ensure, IntoDiagnostic};
+use miette::{IntoDiagnostic};
 use serenity::prelude::*;
-use tweep::Story;
 
 mod config;
 mod database;
@@ -25,22 +24,6 @@ async fn main() -> miette::Result<()> {
 	run_embedded_migrations(&db_connection_pool)?;
 
 	let story_text = tokio::fs::read_to_string(&config.story_file).await.into_diagnostic()?;
-	let story_str = Story::from_string(story_text.clone());
-	let (story, warnings) = story_str.take();
-	ensure!(
-		warnings.is_empty(),
-		"There are errors/warnings in the story data.\n{:?}",
-		warnings
-	);
-
-	let story = match story {
-		Ok(story) => story,
-		Err(error) => bail!(error),
-	};
-
-	if story.get_start_passage_name().is_none() {
-		bail!("No start passage defined");
-	};
 
 	let story_text = StoryText::new(story_text);
 

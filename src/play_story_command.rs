@@ -29,12 +29,8 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 		// Unfortunately, due to how tweep defined the Story type, we cannot pass Story values around or even hold onto
 		// them through an `await`.
 		let story = Story::from_string(story_text.get().to_string());
-		ensure!(
-			!story.has_warnings(),
-			"Story has unresolved warnings: {:?}",
-			story.get_warnings()
-		);
-		let (story, _) = story.take();
+		let (story, warnings) = story.take();
+		ensure!(warnings.is_empty(), "Story has unresolved warnings: {:?}", warnings);
 		let story = story.into_diagnostic()?;
 
 		let Some(initial_passage_title) = story.get_start_passage_name() else {
