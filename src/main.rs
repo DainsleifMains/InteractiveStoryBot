@@ -4,16 +4,18 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use miette::{IntoDiagnostic};
+use miette::IntoDiagnostic;
 use serenity::prelude::*;
 
 mod config;
 mod database;
 mod handler;
+mod models;
 mod play_story_command;
+mod schema;
 mod types;
 
-use database::{DatabaseConnection, connect_db, run_embedded_migrations};
+use database::{connect_db, run_embedded_migrations, DatabaseConnection};
 use handler::Handler;
 use types::StoryText;
 

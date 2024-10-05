@@ -45,19 +45,27 @@ pub fn connect_db(config: &ConfigDocument) -> miette::Result<Pool<ConnectionMana
 
 fn db_url(config: &ConfigDocument) -> String {
 	if let Some(port) = config.database.port {
-		format!("postgres://{}:{}@{}:{}/{}", config.database.username, config.database.password, config.database.host, port, config.database.database)
+		format!(
+			"postgres://{}:{}@{}:{}/{}",
+			config.database.username, config.database.password, config.database.host, port, config.database.database
+		)
 	} else {
-		format!("postgres://{}:{}@{}/{}", config.database.username, config.database.password, config.database.host, config.database.database)
+		format!(
+			"postgres://{}:{}@{}/{}",
+			config.database.username, config.database.password, config.database.host, config.database.database
+		)
 	}
 }
 
-pub fn run_embedded_migrations(db_connection_pool: &Pool<ConnectionManager<PgConnection>>) -> Result<(), MigrationError> {
+pub fn run_embedded_migrations(
+	db_connection_pool: &Pool<ConnectionManager<PgConnection>>,
+) -> Result<(), MigrationError> {
 	let mut db_connection = match db_connection_pool.get() {
 		Ok(connection) => connection,
-		Err(error) => return Err(MigrationError(Box::new(error)))
+		Err(error) => return Err(MigrationError(Box::new(error))),
 	};
 	match db_connection.run_pending_migrations(MIGRATIONS) {
 		Ok(_) => Ok(()),
-		Err(error) => Err(MigrationError(error))
+		Err(error) => Err(MigrationError(error)),
 	}
 }

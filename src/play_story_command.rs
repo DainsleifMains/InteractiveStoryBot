@@ -4,12 +4,18 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use crate::database::DatabaseConnection;
+use crate::models::UserProgress;
+use crate::schema::user_progress;
 use crate::types::StoryText;
+use diesel::prelude::*;
 use miette::{bail, ensure, IntoDiagnostic};
-use serenity::builder::{CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage};
+use serenity::builder::{
+	CreateActionRow, CreateButton, CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage,
+};
 use serenity::client::Context;
 use serenity::model::application::{CommandInteraction, CommandType};
-use tweep::Story;
+use tweep::{Story, TwinePassage};
 
 pub fn command_definition() -> CreateCommand {
 	CreateCommand::new("play_story")
@@ -19,13 +25,30 @@ pub fn command_definition() -> CreateCommand {
 }
 
 pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> miette::Result<()> {
-	let message = {
-		let data = ctx.data.read().await;
-		let story_text = data.get::<StoryText>();
-		let Some(story_text) = story_text else {
-			bail!("Story text not found");
-		};
+	let data = ctx.data.read().await;
+	let story_text = data.get::<StoryText>();
+	let Some(story_text) = story_text else {
+		bail!("Story text not found");
+	};
+	let db_connection_pool = data.get::<DatabaseConnection>();
+	let Some(db_connection_pool) = db_connection_pool else {
+		bail!("Failed to get database connection pool");
+	};
+	let mut db_connection = db_connection_pool.get().into_diagnostic()?;
 
+	let executing_user_id = command.user.id;
+
+	let db_user_id = executing_user_id.get() as i64;
+	let user_progress_data: QueryResult<Option<UserProgress>> = user_progress::table
+		.find(&db_user_id)
+		.first(&mut db_connection)
+		.optional();
+	let user_progress_data = match user_progress_data {
+		Ok(data) => data,
+		Err(error) => bail!("Failed to retrieve user progress from the database: {}", error),
+	};
+
+	let message = {
 		// Unfortunately, due to how tweep defined the Story type, we cannot pass Story values around or even hold onto
 		// them through an `await`.
 		let story = Story::from_string(story_text.get().to_string());
@@ -33,16 +56,36 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 		ensure!(warnings.is_empty(), "Story has unresolved warnings: {:?}", warnings);
 		let story = story.into_diagnostic()?;
 
-		let Some(initial_passage_title) = story.get_start_passage_name() else {
-			bail!("No initial passage defined");
+		let current_passage = match user_progress_data {
+			Some(data) => {
+				let current_passage = story.passages.get(&data.current_passage);
+				match current_passage {
+					Some(passage) => passage,
+					None => {
+						let Some(initial_passage_title) = story.get_start_passage_name() else {
+							bail!("No initial passage defined");
+						};
+						let initial_passage = story.passages.get(initial_passage_title);
+						match initial_passage {
+							Some(passage) => passage,
+							None => bail!("Initial passage is not in the story"),
+						}
+					}
+				}
+			}
+			None => {
+				let Some(initial_passage_title) = story.get_start_passage_name() else {
+					bail!("No initial passage defined");
+				};
+				let initial_passage = story.passages.get(initial_passage_title);
+				match initial_passage {
+					Some(passage) => passage,
+					None => bail!("Initial passage is not in the story"),
+				}
+			}
 		};
-		CreateInteractionResponseMessage::new()
-			.content(format!(
-				"You're about to start a story with a first passage called {}. (Your user id: {})",
-				initial_passage_title,
-				command.user.id.get()
-			))
-			.ephemeral(true)
+
+		message_from_passage(current_passage)
 	};
 	command
 		.create_response(&ctx.http, CreateInteractionResponse::Message(message))
@@ -50,4 +93,46 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 		.into_diagnostic()?;
 
 	Ok(())
+}
+
+fn format_passage(passage_text: &str) -> String {
+	let mut passage_text = passage_text.replace("''", "**"); // bold
+	passage_text = passage_text.replace("//", "*"); // italics
+
+	// The default strikethrough is the same as Discord's.
+
+	passage_text
+}
+
+fn get_passage_links(passage: &TwinePassage) -> Vec<(String, String)> {
+	let links = passage.content.get_links();
+	links
+		.iter()
+		.map(|link_data| {
+			let mut link = link_data.context.get_contents();
+			link = link.strip_prefix("[[").unwrap_or(link);
+			link = link.strip_suffix("]]").unwrap_or(link);
+
+			match link.split_once("->") {
+				Some((name, target)) => (name.to_string(), target.to_string()),
+				None => (link.to_string(), link.to_string()),
+			}
+		})
+		.collect()
+}
+
+fn message_from_passage(passage: &TwinePassage) -> CreateInteractionResponseMessage {
+	let passage_text = format_passage(&passage.content.content);
+	let link_data = get_passage_links(passage);
+
+	let buttons: Vec<CreateButton> = link_data
+		.into_iter()
+		.map(|(name, target)| CreateButton::new(target).label(name))
+		.collect();
+	let button_row = CreateActionRow::Buttons(buttons);
+
+	CreateInteractionResponseMessage::new()
+		.content(passage_text)
+		.ephemeral(true)
+		.components(vec![button_row])
 }

@@ -20,7 +20,7 @@ pub struct ConfigDocument {
 	#[knuffel(child, unwrap(argument))]
 	pub discord_bot_token: String,
 	#[knuffel(child)]
-	pub database: DatabaseArgs
+	pub database: DatabaseArgs,
 }
 
 #[derive(Debug, Decode)]
@@ -34,5 +34,5 @@ pub struct DatabaseArgs {
 	#[knuffel(child, unwrap(argument))]
 	pub password: String,
 	#[knuffel(child, unwrap(argument))]
-	pub database: String
+	pub database: String,
 }
