@@ -95,8 +95,19 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 	Ok(())
 }
 
-fn format_passage(passage_text: &str) -> String {
-	let mut passage_text = passage_text.replace("''", "**"); // bold
+fn format_passage(passage: &TwinePassage) -> String {
+	let mut passage_text = passage.content.content.clone();
+
+	for link_data in passage.content.get_links().iter() {
+		let link_text_data = link_data.context.get_contents();
+		if let Some((link_name, _)) = link_text_data.split_once("->") {
+			let Some(passage_position) = passage_text.find(link_text_data) else { continue; };
+			let new_link_name = format!("{}]]", link_name);
+			passage_text.replace_range(passage_position..(passage_position + link_text_data.len()), &new_link_name);
+		}
+	}
+
+	passage_text = passage_text.replace("''", "**"); // bold
 	passage_text = passage_text.replace("//", "*"); // italics
 
 	// The default strikethrough is the same as Discord's.
@@ -122,7 +133,7 @@ fn get_passage_links(passage: &TwinePassage) -> Vec<(String, String)> {
 }
 
 fn message_from_passage(passage: &TwinePassage) -> CreateInteractionResponseMessage {
-	let passage_text = format_passage(&passage.content.content);
+	let passage_text = format_passage(passage);
 	let link_data = get_passage_links(passage);
 
 	let buttons: Vec<CreateButton> = link_data
