@@ -15,6 +15,7 @@ use serenity::builder::{
 };
 use serenity::client::Context;
 use serenity::model::application::{CommandInteraction, CommandType};
+use std::collections::HashSet;
 use tweep::{Story, TwinePassage};
 
 pub fn command_definition() -> CreateCommand {
@@ -117,7 +118,7 @@ fn format_passage(passage: &TwinePassage) -> String {
 
 fn get_passage_links(passage: &TwinePassage) -> Vec<(String, String)> {
 	let links = passage.content.get_links();
-	links
+	let link_data: Vec<(String, String)> = links
 		.iter()
 		.map(|link_data| {
 			let mut link = link_data.context.get_contents();
@@ -129,7 +130,20 @@ fn get_passage_links(passage: &TwinePassage) -> Vec<(String, String)> {
 				None => (link.to_string(), link.to_string()),
 			}
 		})
-		.collect()
+		.collect();
+
+	let mut deduplicated_link_data = Vec::new();
+	let mut found_targets: HashSet<String> = HashSet::new();
+	for (link_name, link_target) in link_data.into_iter() {
+		if found_targets.contains(&link_target) {
+			continue;
+		}
+		
+		found_targets.insert(link_target.clone());
+		deduplicated_link_data.push((link_name, link_target));
+	}
+
+	deduplicated_link_data
 }
 
 fn message_from_passage(passage: &TwinePassage) -> CreateInteractionResponseMessage {
