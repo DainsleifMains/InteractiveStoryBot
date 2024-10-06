@@ -17,6 +17,7 @@ features = [
 	"builder",
 	"cache",
 	"client",
+	"collector",
 	"gateway",
 	"model",
 	"rustls_backend",
