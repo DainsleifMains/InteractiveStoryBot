@@ -17,6 +17,7 @@ use serenity::builder::{
 use serenity::client::Context;
 use serenity::collector::ComponentInteractionCollector;
 use serenity::model::application::{CommandInteraction, CommandType, ComponentInteractionDataKind};
+use serenity::model::id::UserId;
 use std::collections::HashSet;
 use std::time::Duration;
 use tweep::{Story, TwinePassage};
@@ -54,7 +55,7 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 		Err(error) => bail!("Failed to retrieve user progress from the database: {}", error),
 	};
 
-	let (message, message_links) = {
+	let (message, message_link_ids) = {
 		// Unfortunately, due to how tweep defined the Story type, we cannot pass Story values around or even hold onto
 		// them through an `await`.
 		let story = Story::from_string(story_text.get().to_string());
@@ -91,52 +92,54 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 			}
 		};
 
-		message_from_passage(current_passage)
+		message_from_passage(executing_user_id, current_passage)
 	};
 	command
 		.create_response(&ctx.http, CreateInteractionResponse::Message(message))
 		.await
 		.into_diagnostic()?;
 
-	let link_ids: Vec<String> = message_links.iter().map(|(_, target)| target.clone()).collect();
 	let Some(mut interaction) = ComponentInteractionCollector::new(&ctx.shard)
-		.custom_ids(link_ids)
+		.custom_ids(message_link_ids)
 		.timeout(Duration::from_secs(RESPONSE_TIMEOUT_SECONDS))
 		.await
 	else {
-		command
+		let _ = command
 			.edit_response(&ctx.http, EditInteractionResponse::new().components(Vec::new()))
 			.await
-			.into_diagnostic()?;
+			.into_diagnostic();
 		return Ok(());
 	};
 
 	loop {
 		match &interaction.data.kind {
 			ComponentInteractionDataKind::Button => {
+				let Some((_, selected_passage_name)) = interaction.data.custom_id.split_once('|') else {
+					unreachable!();
+				};
 				let passage_progress_state = UserProgress {
 					user_id: db_user_id,
-					current_passage: interaction.data.custom_id.clone(),
+					current_passage: selected_passage_name.to_string(),
 				};
 				diesel::insert_into(user_progress::table)
 					.values(passage_progress_state)
 					.on_conflict(user_progress::user_id)
 					.do_update()
-					.set(user_progress::current_passage.eq(&interaction.data.custom_id))
+					.set(user_progress::current_passage.eq(selected_passage_name))
 					.execute(&mut db_connection)
 					.into_diagnostic()?;
 
-				let (message, message_links) = {
+				let (message, message_link_ids) = {
 					let story = Story::from_string(story_text.get().to_string());
 					let (story, _) = story.take();
 					let story = story.into_diagnostic()?;
 
-					let current_passage = match story.passages.get(&interaction.data.custom_id) {
+					let current_passage = match story.passages.get(selected_passage_name) {
 						Some(passage) => passage,
 						None => bail!("Next passage not defined"),
 					};
 
-					message_from_passage(current_passage)
+					message_from_passage(executing_user_id, current_passage)
 				};
 
 				interaction
@@ -144,18 +147,17 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 					.await
 					.into_diagnostic()?;
 
-				let link_ids: Vec<String> = message_links.iter().map(|(_, target)| target.clone()).collect();
 				interaction = match ComponentInteractionCollector::new(&ctx.shard)
-					.custom_ids(link_ids)
+					.custom_ids(message_link_ids)
 					.timeout(Duration::from_secs(RESPONSE_TIMEOUT_SECONDS))
 					.await
 				{
 					Some(interaction) => interaction,
 					None => {
-						interaction
+						let _ = interaction
 							.edit_response(&ctx.http, EditInteractionResponse::new().components(Vec::new()))
 							.await
-							.into_diagnostic()?;
+							.into_diagnostic();
 						break;
 					}
 				};
@@ -222,7 +224,7 @@ fn get_passage_links(passage: &TwinePassage) -> Vec<(String, String)> {
 	deduplicated_link_data
 }
 
-fn message_from_passage(passage: &TwinePassage) -> (CreateInteractionResponseMessage, Vec<(String, String)>) {
+fn message_from_passage(user_id: UserId, passage: &TwinePassage) -> (CreateInteractionResponseMessage, Vec<String>) {
 	let passage_text = format_passage(passage);
 	let link_data = get_passage_links(passage);
 
@@ -231,13 +233,16 @@ fn message_from_passage(passage: &TwinePassage) -> (CreateInteractionResponseMes
 			CreateInteractionResponseMessage::new()
 				.content(passage_text)
 				.ephemeral(true),
-			link_data,
+			Vec::new(),
 		)
 	} else {
-		let buttons: Vec<CreateButton> = link_data
-			.iter()
-			.map(|(name, target)| CreateButton::new(target).label(name))
-			.collect();
+		let mut buttons: Vec<CreateButton> = Vec::new();
+		let mut custom_ids: Vec<String> = Vec::new();
+		for (link_name, link_target) in link_data.into_iter() {
+			let button_custom_id = format!("{}|{}", user_id.get(), link_target);
+			buttons.push(CreateButton::new(&button_custom_id).label(link_name));
+			custom_ids.push(button_custom_id);
+		}
 		let button_row = CreateActionRow::Buttons(buttons);
 
 		(
@@ -245,7 +250,7 @@ fn message_from_passage(passage: &TwinePassage) -> (CreateInteractionResponseMes
 				.content(passage_text)
 				.ephemeral(true)
 				.components(vec![button_row]),
-			link_data,
+			custom_ids,
 		)
 	}
 }
