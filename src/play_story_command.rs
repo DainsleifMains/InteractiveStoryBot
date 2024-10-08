@@ -102,6 +102,10 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 		.await
 		.into_diagnostic()?;
 
+	if message_link_ids.is_empty() {
+		return Ok(());
+	}
+
 	let Some(mut interaction) = ComponentInteractionCollector::new(&ctx.shard)
 		.custom_ids(message_link_ids)
 		.timeout(Duration::from_secs(RESPONSE_TIMEOUT_SECONDS))
@@ -156,6 +160,10 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 					.create_response(&ctx.http, CreateInteractionResponse::Message(message))
 					.await
 					.into_diagnostic()?;
+
+				if message_link_ids.is_empty() {
+					break;
+				}
 
 				let new_interaction = ComponentInteractionCollector::new(&ctx.shard)
 					.custom_ids(message_link_ids)
