@@ -41,18 +41,21 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 	let Some(db_connection_pool) = db_connection_pool else {
 		bail!("Failed to get database connection pool");
 	};
-	let mut db_connection = db_connection_pool.get().into_diagnostic()?;
 
 	let executing_user_id = command.user.id;
-
 	let db_user_id = executing_user_id.get() as i64;
-	let user_progress_data: QueryResult<Option<UserProgress>> = user_progress::table
-		.find(&db_user_id)
-		.first(&mut db_connection)
-		.optional();
-	let user_progress_data = match user_progress_data {
-		Ok(data) => data,
-		Err(error) => bail!("Failed to retrieve user progress from the database: {}", error),
+
+	let user_progress_data = {
+		let mut db_connection = db_connection_pool.get().into_diagnostic()?;
+
+		let user_progress_data: QueryResult<Option<UserProgress>> = user_progress::table
+			.find(&db_user_id)
+			.first(&mut db_connection)
+			.optional();
+		match user_progress_data {
+			Ok(data) => data,
+			Err(error) => bail!("Failed to retrieve user progress from the database: {}", error),
+		}
 	};
 
 	let (message, message_link_ids) = {
@@ -111,7 +114,10 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 		return Ok(());
 	};
 
-	let _ = command.edit_response(&ctx.http, EditInteractionResponse::new().components(Vec::new())).await.into_diagnostic();
+	let _ = command
+		.edit_response(&ctx.http, EditInteractionResponse::new().components(Vec::new()))
+		.await
+		.into_diagnostic();
 
 	loop {
 		match &interaction.data.kind {
@@ -119,17 +125,19 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 				let Some((_, selected_passage_name)) = interaction.data.custom_id.split_once('|') else {
 					unreachable!();
 				};
-				let passage_progress_state = UserProgress {
-					user_id: db_user_id,
-					current_passage: selected_passage_name.to_string(),
-				};
-				diesel::insert_into(user_progress::table)
-					.values(passage_progress_state)
-					.on_conflict(user_progress::user_id)
-					.do_update()
-					.set(user_progress::current_passage.eq(selected_passage_name))
-					.execute(&mut db_connection)
-					.into_diagnostic()?;
+				if let Ok(mut db_connection) = db_connection_pool.get() {
+					let passage_progress_state = UserProgress {
+						user_id: db_user_id,
+						current_passage: selected_passage_name.to_string(),
+					};
+					diesel::insert_into(user_progress::table)
+						.values(passage_progress_state)
+						.on_conflict(user_progress::user_id)
+						.do_update()
+						.set(user_progress::current_passage.eq(selected_passage_name))
+						.execute(&mut db_connection)
+						.into_diagnostic()?;
+				}
 
 				let (message, message_link_ids) = {
 					let story = Story::from_string(story_text.get().to_string());
