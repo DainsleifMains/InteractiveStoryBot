@@ -111,6 +111,8 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 		return Ok(());
 	};
 
+	let _ = command.edit_response(&ctx.http, EditInteractionResponse::new().components(Vec::new())).await.into_diagnostic();
+
 	loop {
 		match &interaction.data.kind {
 			ComponentInteractionDataKind::Button => {
@@ -147,19 +149,17 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 					.await
 					.into_diagnostic()?;
 
-				interaction = match ComponentInteractionCollector::new(&ctx.shard)
+				let new_interaction = ComponentInteractionCollector::new(&ctx.shard)
 					.custom_ids(message_link_ids)
 					.timeout(Duration::from_secs(RESPONSE_TIMEOUT_SECONDS))
+					.await;
+				let _ = interaction
+					.edit_response(&ctx.http, EditInteractionResponse::new().components(Vec::new()))
 					.await
-				{
+					.into_diagnostic();
+				interaction = match new_interaction {
 					Some(interaction) => interaction,
-					None => {
-						let _ = interaction
-							.edit_response(&ctx.http, EditInteractionResponse::new().components(Vec::new()))
-							.await
-							.into_diagnostic();
-						break;
-					}
+					None => break,
 				};
 			}
 			_ => unreachable!(),
