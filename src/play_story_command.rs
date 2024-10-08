@@ -18,7 +18,6 @@ use serenity::client::Context;
 use serenity::collector::ComponentInteractionCollector;
 use serenity::model::application::{CommandInteraction, CommandType, ComponentInteractionDataKind};
 use serenity::model::id::UserId;
-use std::collections::HashSet;
 use std::time::Duration;
 use tweep::{Story, TwinePassage};
 
@@ -212,7 +211,7 @@ fn format_passage(passage: &TwinePassage) -> String {
 
 fn get_passage_links(passage: &TwinePassage) -> Vec<(String, String)> {
 	let links = passage.content.get_links();
-	let link_data: Vec<(String, String)> = links
+	links
 		.iter()
 		.map(|link_data| {
 			let mut link = link_data.context.get_contents();
@@ -224,20 +223,7 @@ fn get_passage_links(passage: &TwinePassage) -> Vec<(String, String)> {
 				None => (link.to_string(), link.to_string()),
 			}
 		})
-		.collect();
-
-	let mut deduplicated_link_data = Vec::new();
-	let mut found_targets: HashSet<String> = HashSet::new();
-	for (link_name, link_target) in link_data.into_iter() {
-		if found_targets.contains(&link_target) {
-			continue;
-		}
-
-		found_targets.insert(link_target.clone());
-		deduplicated_link_data.push((link_name, link_target));
-	}
-
-	deduplicated_link_data
+		.collect()
 }
 
 fn message_from_passage(user_id: UserId, passage: &TwinePassage) -> (CreateInteractionResponseMessage, Vec<String>) {
@@ -254,8 +240,8 @@ fn message_from_passage(user_id: UserId, passage: &TwinePassage) -> (CreateInter
 	} else {
 		let mut buttons: Vec<CreateButton> = Vec::new();
 		let mut custom_ids: Vec<String> = Vec::new();
-		for (link_name, link_target) in link_data.into_iter() {
-			let button_custom_id = format!("{}|{}", user_id.get(), link_target);
+		for (link_index, (link_name, link_target)) in link_data.into_iter().enumerate() {
+			let button_custom_id = format!("{}-{}|{}", user_id.get(), link_index, link_target);
 			buttons.push(CreateButton::new(&button_custom_id).label(link_name));
 			custom_ids.push(button_custom_id);
 		}
