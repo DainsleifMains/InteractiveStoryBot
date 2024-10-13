@@ -65,36 +65,17 @@ pub async fn command_execute(ctx: &Context, command: &CommandInteraction) -> mie
 		ensure!(warnings.is_empty(), "Story has unresolved warnings: {:?}", warnings);
 		let story = story.into_diagnostic()?;
 
-		let current_passage = match user_progress_data {
-			Some(data) => {
-				let current_passage = story.passages.get(&data.current_passage);
-				match current_passage {
-					Some(passage) => passage,
-					None => {
-						let Some(initial_passage_title) = story.get_start_passage_name() else {
-							bail!("No initial passage defined");
-						};
-						let initial_passage = story.passages.get(initial_passage_title);
-						match initial_passage {
-							Some(passage) => passage,
-							None => bail!("Initial passage is not in the story"),
-						}
-					}
-				}
-			}
-			None => {
-				let Some(initial_passage_title) = story.get_start_passage_name() else {
-					bail!("No initial passage defined");
-				};
-				let initial_passage = story.passages.get(initial_passage_title);
-				match initial_passage {
-					Some(passage) => passage,
-					None => bail!("Initial passage is not in the story"),
-				}
-			}
-		};
+		let current_passage = user_progress_data.and_then(|progress| story.passages.get(&progress.current_passage));
 
-		message_from_passage(executing_user_id, current_passage)
+		match current_passage {
+			Some(passage) => message_from_passage(executing_user_id, passage),
+			None => {
+				let Some(initial_passage) = story.get_start_passage_name() else {
+					bail!("No start passage defined");
+				};
+				tutorial_passage(executing_user_id, initial_passage)
+			}
+		}
 	};
 	command
 		.create_response(&ctx.http, CreateInteractionResponse::Message(message))
@@ -255,4 +236,17 @@ fn message_from_passage(user_id: UserId, passage: &TwinePassage) -> (CreateInter
 			custom_ids,
 		)
 	}
+}
+
+fn tutorial_passage(user_id: UserId, opening_passage_title: &str) -> (CreateInteractionResponseMessage, Vec<String>) {
+	let start_button_id = format!("{}-0|{}", user_id.get(), opening_passage_title);
+	let buttons = vec![CreateButton::new(&start_button_id).label("Click here to start")];
+	let button_row = CreateActionRow::Buttons(buttons);
+	let message_content = "# Tutorial\n\nWhen playing through this story, you will see text in double-brackets. For example, it'll look like this: [[Click here to start]].\nIf you see that, a button with the same text at the bottom of the post will take you to that page.\n\nTry it now!";
+	(
+		CreateInteractionResponseMessage::new()
+			.content(message_content)
+			.components(vec![button_row]),
+		vec![start_button_id],
+	)
 }
