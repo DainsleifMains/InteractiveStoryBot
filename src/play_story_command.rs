@@ -221,18 +221,24 @@ fn message_from_passage(user_id: UserId, passage: &TwinePassage) -> (CreateInter
 	} else {
 		let mut buttons: Vec<CreateButton> = Vec::new();
 		let mut custom_ids: Vec<String> = Vec::new();
+		let mut button_rows: Vec<CreateActionRow> = Vec::new();
 		for (link_index, (link_name, link_target)) in link_data.into_iter().enumerate() {
 			let button_custom_id = format!("{}-{}|{}", user_id.get(), link_index, link_target);
 			buttons.push(CreateButton::new(&button_custom_id).label(link_name));
+			if buttons.len() == 5 {
+				button_rows.push(CreateActionRow::Buttons(std::mem::take(&mut buttons)));
+			}
 			custom_ids.push(button_custom_id);
 		}
-		let button_row = CreateActionRow::Buttons(buttons);
+		if !buttons.is_empty() {
+			button_rows.push(CreateActionRow::Buttons(buttons));
+		}
 
 		(
 			CreateInteractionResponseMessage::new()
 				.content(passage_text)
 				.ephemeral(true)
-				.components(vec![button_row]),
+				.components(button_rows),
 			custom_ids,
 		)
 	}
